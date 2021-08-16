@@ -55,18 +55,7 @@ enum Command {
         ids: bool,
     },
     /// Display goals
-    Goals {
-        /// Fetch all not just active
-        #[structopt(short, long, conflicts_with("current"))]
-        all: bool,
-        /// Fetch just current
-        #[structopt(short, long, conflicts_with("all"))]
-        current: bool,
-
-        /// Show team IDs too
-        #[structopt(short, long)]
-        ids: bool,
-    },
+    Goals,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -133,7 +122,7 @@ pub async fn run() -> Result<()> {
                 );
             };
         }
-        Command::Goals { all, current, ids } => {
+        Command::Goals => {
             let goals = get_goals(&cfg).await?;
             let utc = Utc::now();
             let today = utc.to_rfc3339();
@@ -240,15 +229,6 @@ fn gtmclient(conf: &MyConfig, path: &str) -> reqwest::RequestBuilder {
     let client = reqwest::Client::new();
     client
         .get("https://app.us.gtmhub.com/api/v1".to_string() + path)
-        .header(USER_AGENT, "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/11.1.2 Safari/605.1.15")
-        .header(ACCEPT, "application/json")
-        .header("gtmhub-accountId", format!("{}", conf.account_id))
-        .bearer_auth(&conf.api_token)
-}
-fn gtmclient_v2(conf: &MyConfig, path: &str) -> reqwest::RequestBuilder {
-    let client = reqwest::Client::new();
-    client
-        .get("https://app.us.gtmhub.com/api/v2".to_string() + path)
         .header(USER_AGENT, "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/11.1.2 Safari/605.1.15")
         .header(ACCEPT, "application/json")
         .header("gtmhub-accountId", format!("{}", conf.account_id))
