@@ -41,7 +41,21 @@ enum Command {
         #[structopt(short, long)]
         ids: bool,
     },
+    /// Display sessions
     Sessions {
+        /// Fetch all not just active
+        #[structopt(short, long, conflicts_with("current"))]
+        all: bool,
+        /// Fetch just current
+        #[structopt(short, long, conflicts_with("all"))]
+        current: bool,
+
+        /// Show team IDs too
+        #[structopt(short, long)]
+        ids: bool,
+    },
+    /// Display goals
+    Goals {
         /// Fetch all not just active
         #[structopt(short, long, conflicts_with("current"))]
         all: bool,
@@ -118,6 +132,28 @@ pub async fn run() -> Result<()> {
                     ids,
                 );
             };
+        }
+        Command::Goals { all, current, ids } => {
+            let goals = get_goals(&cfg).await?;
+            let utc = Utc::now();
+            let today = utc.to_rfc3339();
+            let mut filtered: Vec<Goal> = goals
+                .items
+                .into_iter()
+                .filter(|g| {
+                    &g.date_to >= &today
+                        && &g.date_from <= &today
+                        && g.assignee.assignee_type == "team"
+                })
+                .collect();
+            filtered.sort_by(|a, b| {
+                a.date_from
+                    .cmp(&b.date_from)
+                    .then_with(|| a.session_id.cmp(&b.session_id))
+                    .then_with(|| a.assignee.name.cmp(&b.assignee.name))
+            });
+            let sessions = get_sessions(&cfg).await?;
+            display_goals(filtered.into_iter(), &sessions.items);
         }
     }
     Ok(())
@@ -209,6 +245,15 @@ fn gtmclient(conf: &MyConfig, path: &str) -> reqwest::RequestBuilder {
         .header("gtmhub-accountId", format!("{}", conf.account_id))
         .bearer_auth(&conf.api_token)
 }
+fn gtmclient_v2(conf: &MyConfig, path: &str) -> reqwest::RequestBuilder {
+    let client = reqwest::Client::new();
+    client
+        .get("https://app.us.gtmhub.com/api/v2".to_string() + path)
+        .header(USER_AGENT, "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/11.1.2 Safari/605.1.15")
+        .header(ACCEPT, "application/json")
+        .header("gtmhub-accountId", format!("{}", conf.account_id))
+        .bearer_auth(&conf.api_token)
+}
 
 async fn get_teams(conf: &MyConfig) -> Result<TeamsResponse> {
     let response = gtmclient(&conf, "/teams").send().await?;
@@ -286,3 +331,157 @@ where
         }
     }
 }
+
+#[derive(Debug, Deserialize)]
+struct GoalsResponse {
+    items: Vec<Goal>,
+    #[serde(rename = "totalCount")]
+    total_count: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct Assignee {
+    #[serde(rename = "accountId")]
+    account_id: String,
+    avatar: String,
+    email: String,
+    id: String,
+    name: String,
+    #[serde(rename = "type")]
+    assignee_type: String, //AssigneeType, // "team" or "user"
+}
+#[derive(Debug, Deserialize)]
+enum AssigneeType {
+    #[serde(rename = "team")]
+    Team,
+    #[serde(rename = "user")]
+    User,
+}
+#[derive(Debug, Deserialize)]
+struct Confidence {
+    date: String,
+    reason: String,
+    #[serde(rename = "userId")]
+    user_id: String,
+    value: f64,
+}
+#[derive(Debug, Deserialize)]
+struct Metric {
+    description: Option<String>,
+    actual: f64,
+    assignee: Option<Assignee>,
+    critical: Option<f64>,
+    confidence: Option<Confidence>,
+    #[serde(rename = "dueDate")]
+    due_date: Option<String>,
+    /* #[serde(rename = "goalDescription")]
+    goal_description: String,
+    #[serde(rename = "goalId")]
+    goal_id: String,
+    #[serde(rename = "goalName")]
+    goal_name: String,
+    #[serde(rename = "goalOwnerId")]
+    goal_owner_id: String, */
+    #[serde(rename = "initialValue")]
+    initial_value: Option<f64>,
+    #[serde(rename = "manualType")]
+    manual_type: Option<String>,
+    name: String,
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    target: f64,
+    #[serde(rename = "targetOperator")]
+    target_operator: Option<String>,
+}
+#[derive(Debug, Deserialize)]
+struct Goal {
+    #[serde(rename = "accountId")]
+    account_id: String,
+    #[serde(rename = "aggregatedAttainment")]
+    aggregated_attainment: Option<f64>,
+    assignee: Assignee,
+    attainment: f64,
+    #[serde(rename = "attainmentTypeString")]
+    attainment_type: Option<String>,
+    #[serde(rename = "dateCreated")]
+    date_created: String,
+    #[serde(rename = "dateFrom")]
+    date_from: String,
+    #[serde(rename = "dateTo")]
+    date_to: String,
+    description: Option<String>,
+    #[serde(rename = "sessionId")]
+    session_id: String,
+    /* #[serde(rename = "fullAggregatedAttainment")]
+    full_aggregated_attainment: f64, */
+    id: String,
+    #[serde(default)]
+    metrics: Vec<Metric>,
+    name: String,
+    url: String,
+}
+
+async fn get_goals(conf: &MyConfig) -> Result<GoalsResponse> {
+    let request = gtmclient(&conf, "/goals").query(&[
+        ("fields", "accountId,sessionId,assignee,attainment,attainmentType,dateCreated,dateFrom,dateTo,description,fullAggregatedAttainment,id,metrics{id,confidence,name,attainment,description,actual,target},name,url"),
+        ("sort", "-dateTo,sessionId,assignee.name"),
+        // I'm extremely confused about why, but the filter stuff just doesn't work.
+        // For that matter, neither does limit or skip.
+        ("filter", r#"{"sessionId": "60e48512e442c8000146a86d"}"#),
+    ]);
+    debug!("Request: {:?}\n", &request);
+
+    let response = request.send().await?;
+
+    debug!(
+        "Full: {:?}\nGot status: {}\n",
+        &response,
+        &response.status()
+    );
+    let json: GoalsResponse = response.json().await?;
+    info!("JSON: {:?}", &json);
+    Ok(json)
+}
+
+fn display_goals<I>(goals: I, sessions: &[Session])
+where
+    I: IntoIterator<Item = Goal>,
+{
+    let mut session_id = "".to_string();
+    let mut team = "".to_string();
+    for g in goals {
+        if g.session_id != session_id {
+            println!(
+                "* **{}** ({} to {})",
+                sessions
+                    .iter()
+                    .find(|s| s.id == g.session_id)
+                    .map(|s| &s.title)
+                    .unwrap_or(&g.session_id),
+                g.date_from
+                    .split_once('T')
+                    .map(|x| x.0)
+                    .unwrap_or(&g.date_from),
+                g.date_to
+                    .split_once('T')
+                    .map(|x| x.0)
+                    .unwrap_or(&g.date_from),
+            );
+            session_id = g.session_id.to_string();
+            team = "".to_string();
+        }
+        if g.assignee.name != team {
+            println!("    * **{}**", g.assignee.name);
+            team = g.assignee.name.to_string();
+        }
+        println!("        * {} ({:.0}%)", g.name, g.attainment * 100.0);
+        for m in g.metrics.iter() {
+            println!("            * KR: {} ({}/{})", m.name, m.actual, m.target);
+        }
+    }
+}
+
+/*
+
+/metrics/?goalids=
+ */
