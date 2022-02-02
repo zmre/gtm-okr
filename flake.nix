@@ -3,31 +3,34 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    rust-overlay.url = "github:oxalica/rust-overlay";
+    # rust-overlay.url = "github:oxalica/rust-overlay";
     flake-utils.url = "github:numtide/flake-utils";
-    naersk.url = "github:nix-community/naersk";
+    # naersk.url = "github:nix-community/naersk";
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils, naersk, ... }:
+  outputs = { self, nixpkgs, flake-utils, ... }:
     flake-utils.lib.eachDefaultSystem (system:
-      let
-        overlays = [ (import rust-overlay) ];
-        pkgs = import nixpkgs { inherit system overlays; };
-        rusttoolchain =
-          pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-        naersk-lib = naersk.lib."${system}";
+      let pkgs = nixpkgs.legacyPackages.${system};
       in rec {
         # `nix build`
-        packages.gtm-okr = naersk-lib.buildPackage {
-          pname = "gtm-okr";
-          root = ./.;
-          buildInputs = with pkgs; [ openssl pkg-config rusttoolchain ];
+        packages = {
+          gtm-okr = pkgs.rustPlatform.buildRustPackage {
+            pname = "gtm-okr";
+            version = "0.1.0";
+            src = pkgs.nix-gitignore.gitignoreSource [
+              ./.gitignore
+              "flake.nix"
+              "result"
+            ] ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ];
+          };
         };
         defaultPackage = packages.gtm-okr;
 
         # nix develop
-        devShell = pkgs.mkShell {
-          buildInputs = with pkgs; [ openssl pkg-config rusttoolchain ];
-        };
+        devShell =
+          pkgs.mkShell { buildInputs = with pkgs; [ openssl pkg-config ]; };
       });
 }
