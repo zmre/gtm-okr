@@ -17,11 +17,12 @@
           gtm-okr = pkgs.rustPlatform.buildRustPackage {
             pname = "gtm-okr";
             version = "0.1.0";
-            src = pkgs.nix-gitignore.gitignoreSource [
-              ./.gitignore
-              "flake.nix"
-              "result"
-            ] ./.;
+            src = ./.;
+            # src = pkgs.nix-gitignore.gitignoreSource [
+            #   ./.gitignore
+            #   "flake.nix"
+            #   "result"
+            # ] ./.;
             cargoLock.lockFile = ./Cargo.lock;
             nativeBuildInputs = [ pkgs.pkg-config ];
             buildInputs = [ pkgs.openssl ];
