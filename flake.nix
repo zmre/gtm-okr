@@ -25,13 +25,18 @@
             # ] ./.;
             cargoLock.lockFile = ./Cargo.lock;
             nativeBuildInputs = [ pkgs.pkg-config ];
-            buildInputs = [ pkgs.openssl ];
+            buildInputs = [ pkgs.openssl ]
+              ++ pkgs.lib.optionals pkgs.stdenv.isDarwin
+              [ pkgs.darwin.apple_sdk.frameworks.Security ];
           };
         };
         defaultPackage = packages.gtm-okr;
 
         # nix develop
-        devShell =
-          pkgs.mkShell { buildInputs = with pkgs; [ openssl pkg-config ]; };
+        devShell = pkgs.mkShell {
+          buildInputs = with pkgs;
+            [ openssl pkg-config ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin
+            [ pkgs.darwin.apple_sdk.frameworks.Security ];
+        };
       });
 }
